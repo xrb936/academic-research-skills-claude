@@ -19,11 +19,11 @@ A stress test of 68 AI-generated citations found 31% had problems — and all pa
 | Model | API ID | Provider | Best For |
 |-------|--------|----------|----------|
 | Claude Opus 4.7 | `claude-opus-4-7` | Anthropic | Primary model (default for all ARS skills) |
-| GPT-5.4 Pro | `gpt-5.4-pro` | OpenAI | Cross-verification — strongest reasoning |
-| GPT-5.4 | `gpt-5.4` | OpenAI | Cross-verification — balanced cost/performance |
+| gpt-5.5 Pro | `gpt-5.5-pro` | OpenAI | Cross-verification — strongest reasoning |
+| gpt-5.5 | `gpt-5.5` | OpenAI | Cross-verification — balanced cost/performance |
 | Gemini 3.1 Pro | `gemini-3.1-pro-preview` | Google | Cross-verification — strong at factual verification |
 
-**Recommended cross-verification pair:** Claude Opus 4.7 (primary) + GPT-5.4 Pro or Gemini 3.1 Pro (verifier).
+**Recommended cross-verification pair:** Claude Opus 4.7 (primary) + gpt-5.5 Pro or Gemini 3.1 Pro (verifier).
 
 Using two non-Anthropic models as primary+verifier is possible but not tested with ARS prompts.
 
@@ -35,7 +35,7 @@ You need API keys from at least one additional provider. ARS itself runs inside 
 
 ### Step 1: Get API Keys
 
-**OpenAI (GPT-5.4):**
+**OpenAI (gpt-5.5):**
 1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 2. Create a new API key
 3. Copy the key (starts with `sk-`)
@@ -54,9 +54,13 @@ Add to your shell profile (`~/.zshrc` or `~/.bashrc`):
 export OPENAI_API_KEY="sk-your-key-here"
 export GOOGLE_AI_API_KEY="AIza-your-key-here"
 
+# Optional: Override the OpenAI-compatible gateway if needed
+export OPENAI_BASE_URL="https://api.rxu.info/v1"
+export GOOGLE_BASE_URL="https://api.rxu.info/v1"
+
 # Choose your preferred cross-verification model
-# Options: gpt-5.4-pro, gpt-5.4, gemini-3.1-pro-preview
-export ARS_CROSS_MODEL="gpt-5.4-pro"
+# Options: gpt-5.5-pro, gpt-5.5, gemini-3.1-pro-preview
+export ARS_CROSS_MODEL="gpt-5.5-pro"
 ```
 
 Then reload: `source ~/.zshrc`
@@ -76,7 +80,7 @@ If you don't want cross-model verification running all the time, you can enable 
 
 ```bash
 # Enable for this session only
-export ARS_CROSS_MODEL="gpt-5.4-pro"
+export ARS_CROSS_MODEL="gpt-5.5-pro"
 
 # Disable for this session
 unset ARS_CROSS_MODEL
@@ -165,12 +169,12 @@ The DA agent, after completing its checkpoint report, should:
 
 ## API Call Patterns
 
-### OpenAI (GPT-5.4 / GPT-5.4 Pro)
+### OpenAI (gpt-5.5 / gpt-5.5 Pro, OpenAI-compatible)
 
 In Claude Code, the agent can use the Bash tool to make API calls:
 
 ```bash
-curl -s https://api.openai.com/v1/chat/completions \
+curl -s "${OPENAI_BASE_URL:-https://api.rxu.info/v1}/chat/completions" \
   -H "Authorization: Bearer $OPENAI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -184,16 +188,23 @@ curl -s https://api.openai.com/v1/chat/completions \
   }' | jq -r '.choices[0].message.content'
 ```
 
-### Google Gemini (Gemini 3.1 Pro)
+### Google Gemini (Gemini 3.1 Pro, OpenAI-compatible)
 
 ```bash
 # PROMPT must be set before calling. Use jq to JSON-escape it.
-curl -s "https://generativelanguage.googleapis.com/v1beta/models/${ARS_CROSS_MODEL}:generateContent?key=$GOOGLE_AI_API_KEY" \
+# Default gateway uses the same OpenAI-compatible endpoint shape as OpenAI.
+curl -s "${GOOGLE_BASE_URL:-https://api.rxu.info/v1}/chat/completions" \
+  -H "Authorization: Bearer $GOOGLE_AI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "contents": [{"parts": [{"text": "'"$(echo "$PROMPT" | jq -Rs .)"'"}]}],
-    "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2000}
-  }' | jq -r '.candidates[0].content.parts[0].text'
+    "model": "'"$ARS_CROSS_MODEL"'",
+    "messages": [
+      {"role": "system", "content": "You are a verification assistant."},
+      {"role": "user", "content": "'"$(echo "$PROMPT" | jq -Rs .)"'"}
+    ],
+    "temperature": 0.1,
+    "max_tokens": 2000
+  }' | jq -r '.choices[0].message.content'
 ```
 
 ### Detecting Available Models
@@ -209,13 +220,13 @@ fi
 
 if [ -n "$ARS_CROSS_MODEL" ]; then
   case "$ARS_CROSS_MODEL" in
-    gpt-5.4*) 
+    gpt-5.5*) 
       [ -n "$OPENAI_API_KEY" ] && echo "CROSS_MODEL_AVAILABLE=openai" \
         || echo "WARNING: ARS_CROSS_MODEL=$ARS_CROSS_MODEL but OPENAI_API_KEY is not set" ;;
     gemini*) 
       [ -n "$GOOGLE_AI_API_KEY" ] && echo "CROSS_MODEL_AVAILABLE=google" \
         || echo "WARNING: ARS_CROSS_MODEL=$ARS_CROSS_MODEL but GOOGLE_AI_API_KEY is not set" ;;
-    *) echo "WARNING: ARS_CROSS_MODEL=$ARS_CROSS_MODEL is not a supported model. Supported: gpt-5.4, gpt-5.4-pro, gemini-3.1-pro-preview"
+    *) echo "WARNING: ARS_CROSS_MODEL=$ARS_CROSS_MODEL is not a supported model. Supported: gpt-5.5, gpt-5.5-pro, gemini-3.1-pro-preview"
        echo "CROSS_MODEL_AVAILABLE=none" ;;
   esac
 else
@@ -236,7 +247,7 @@ Cross-model verification adds API costs from the second provider:
 | Peer review (planned, not yet implemented) | — | — |
 | **Full pipeline** | **~7 calls** | **~$0.60-1.10** |
 
-These are rough estimates based on GPT-5.4 Pro pricing ($5/1M input, $20/1M output) and typical prompt sizes.
+These are rough estimates based on gpt-5.5 Pro pricing ($5/1M input, $20/1M output) and typical prompt sizes.
 
 ## Limitations
 
