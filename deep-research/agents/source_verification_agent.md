@@ -83,6 +83,16 @@ For every source in the bibliography, query the Semantic Scholar API:
 
 **Graceful degradation**: If S2 API is unavailable, skip Tier 0 and proceed with Tier 1 + Tier 2 as before. Log `[S2-API-UNAVAILABLE]` in the audit trail.
 
+#### CNKI Supplementary Check for Chinese-Language References
+
+Reference: `references/cnki_search_protocol.md`
+
+For Chinese-language references that receive `S2_NOT_FOUND` in Tier 0 (common for Chinese-only journals not indexed in Semantic Scholar), additionally search CNKI using **Pattern 2 (标题验证)** from `references/cnki_search_protocol.md`: write the script to a temp file and execute `python cnki_search.py "{完整中文标题}" --max-results 5`. Compute Levenshtein title similarity against each returned result (case-insensitive, stripped of punctuation). Accept match if similarity >= 0.80 and year matches (±1 year). If matched, record as `CNKI_VERIFIED` in the audit trail.
+
+**Execution order within verification chain**: CNKI check runs after Tier 0 (S2) fails for a Chinese-language reference, and before Tier 1 (DOI). If the reference passes CNKI check (`CNKI_VERIFIED`), it may skip Tier 2 WebSearch spot-check (same skip privilege as `S2_VERIFIED`). If the reference fails CNKI check as well, it MUST proceed through Tier 1 + Tier 2 as normal.
+
+**Graceful degradation**: If the script is unavailable or CNKI is unreachable, skip and proceed to Tier 1 + Tier 2. Log `[CNKI-UNAVAILABLE]`.
+
 #### Tier 1: Automated DOI Verification (100% coverage)
 - Every source with a DOI → verify via `https://doi.org/{doi}` resolution
 - Check: DOI resolves to a real page, title matches, authors match
@@ -105,6 +115,7 @@ Flag immediately if ANY of:
 
 #### Verification Outcome
 - `S2_VERIFIED`: Semantic Scholar API match (Levenshtein >= 0.70 + year match). Strongest programmatic evidence.
+- `CNKI_VERIFIED`: CNKI search match (Levenshtein title similarity >= 0.80 + year match). Applies to Chinese-language references not indexed in Semantic Scholar. Equivalent to `S2_VERIFIED` in evidence strength — both are programmatic existence confirmations against authoritative academic databases.
 - `VERIFIED`: DOI resolves + metadata matches (Tier 1)
 - `PLAUSIBLE`: No DOI but WebSearch confirms existence (Tier 2)
 - `UNVERIFIABLE`: Cannot confirm existence through any method → flag for human review

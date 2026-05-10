@@ -169,9 +169,31 @@ User: "Research [topic]"
      |
 === Phase 2: INVESTIGATION ===
      |
+     |-- STEP 0: CNKI Trigger Check (MANDATORY — execute before any search)
+     |   ⚠️ IRON RULE: Check if ANY of these conditions are true:
+     |     (a) User explicitly requests Chinese literature / 中文文献 / CNKI / 知网
+     |     (b) The research question or user message contains Chinese text
+     |     (c) Existing Chinese-language references need verification
+     |   If ANY condition is true → CNKI search is MANDATORY:
+     |     1. Read references/cnki_search_protocol.md § CNKI Search Script
+     |     2. Write the complete Python script to a temp file (cnki_search.py)
+     |     3. Derive 2-4 keyword groups from the RQ (same as WebSearch strategy):
+     |        e.g., RQ "飞行员绩效" → ["飞行员 绩效评估", "民航飞行员 表现", "飞行员 工作绩效 影响因素"]
+     |     4. Execute CNKI search for EACH keyword group (min 5s between calls):
+     |        python cnki_search.py "<关键词组1>" --max-results <N>
+     |        python cnki_search.py "<关键词组2>" --max-results <N>
+     |        ...
+     |        (N per mode: full=20, quick=10, lit-review=30, systematic-review=50)
+     |     5. Parse JSON from stdout, merge results, deduplicate by title similarity
+     |     6. Delete temp file
+     |   WebSearch CANNOT substitute for CNKI — most Chinese journal articles
+     |   and theses are only indexed in CNKI, not in Google/Google Scholar.
+     |   If CNKI fails → log [CNKI-UNAVAILABLE], proceed with WebSearch fallback.
+     |   If no condition is true → skip CNKI, proceed to standard search.
+     |
      |-> [bibliography_agent] -> Source Corpus + Annotated Bibliography
      |   - Systematic search strategy (databases, keywords, Boolean)
-     |   - Inclusion/exclusion criteria
+     |   - CNKI results merged with WebSearch results (same inclusion/exclusion criteria)
      |   - PRISMA-style flow (if applicable)
      |   - Annotated bibliography (APA 7.0)
      |
@@ -181,6 +203,9 @@ User: "Research [topic]"
          - Conflict-of-interest flagging
          - Currency assessment (publication date relevance)
          - Source quality matrix
+         - Chinese refs with S2_NOT_FOUND → for EACH such ref, invoke CNKI
+           Pattern 2 (title verification): python cnki_search.py "<完整中文标题>"
+           --max-results 5, match by Levenshtein >= 0.80. Space calls 5s apart.
      |
 === Phase 3: ANALYSIS ===
      |
@@ -307,7 +332,7 @@ Key failure path summary:
 | Ethics BLOCKED | Serious ethical issue | STOP, list issues and remediation path |
 | Socratic non-convergence | > 10 rounds without convergence | Suggest switching to full mode |
 | User abandons mid-process | Explicitly states they don't want to continue | Save progress, provide re-entry path |
-| Only Chinese-language literature | English search returns empty | Switch to Chinese academic databases |
+| Only Chinese-language literature | English search returns empty | Switch to Chinese academic databases (invoke CNKI via Phase 2 Step 0) |
 
 ---
 

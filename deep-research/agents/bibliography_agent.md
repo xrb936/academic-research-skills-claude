@@ -36,6 +36,37 @@ DOCUMENT TYPES: [journal articles, reports, grey literature, etc.]
 - Document date of search
 - Note total hits before filtering
 
+### Step 2.5: CNKI Chinese Literature Search
+
+Reference: `references/cnki_search_protocol.md`
+
+⚠️ **IRON RULE**: Before proceeding to Step 3, you MUST check whether CNKI search should be triggered. If ANY of the following conditions are true, CNKI search is **mandatory — not optional, not supplementary**:
+
+1. User explicitly requests Chinese literature, 中文文献, or mentions CNKI / 知网
+2. The research question or user message contains Chinese text
+3. Existing Chinese-language references in the corpus need verification
+
+Do NOT trigger solely because the research topic relates to China — only when Chinese-language sources are specifically needed. When none of the above conditions are met, skip this step.
+
+**When triggered, execute:**
+
+1. Read `references/cnki_search_protocol.md` § CNKI Search Script
+2. Write the complete Python script to a temp file
+3. Execute via Bash: `python cnki_search.py "<中文关键词>" --max-results <N>`（参见协议文档中各模式建议用量表）
+4. Parse JSON output from stdout（脚本始终自动提取完整元数据：摘要、关键词、DOI、卷期页码等）
+5. Merge CNKI results into the main result pool — three-layer deduplication:
+   - **Layer 1 (DOI)**: If CNKI result has DOI and matches an existing result's DOI → duplicate, keep the one with more complete metadata
+   - **Layer 2 (Title similarity)**: Levenshtein title similarity >= 0.80 AND year matches (±1 year) → duplicate
+   - **Layer 3 (S2 ID, in Step 4.5)**: CNKI results that resolve to the same `semantic_scholar_id` as an existing result → duplicate (caught during S2 dedup)
+6. If multiple keyword combinations are needed, space searches at least 5 seconds apart
+7. Clean up temp file after execution
+
+CNKI results that survive deduplication enter Step 3 (Inclusion/Exclusion) and Step 4 (Two-pass Screening) identically to WebSearch and database results — no special treatment.
+
+**Graceful degradation**: If the script fails or returns zero results, log `[CNKI-UNAVAILABLE]` and continue with existing sources. Never block the pipeline on CNKI failure.
+
+**Graceful degradation**: If the script fails or returns zero results, log `[CNKI-UNAVAILABLE]` and continue with existing sources. Never block the pipeline on CNKI failure.
+
 ### Step 3: Apply Inclusion/Exclusion Criteria
 
 | Criterion | Include | Exclude |

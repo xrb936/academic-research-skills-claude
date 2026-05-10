@@ -3,7 +3,7 @@
 **Status**: v3.3
 **Used by**: `source_verification_agent`, `bibliography_agent`, `integrity_verification_agent`
 **API base**: `https://api.semanticscholar.org/graph/v1`
-**Rate limit**: 1 request/second (unauthenticated), 10 requests/second (with API key)
+**Rate limit**: See per-endpoint limits below
 **API key env var**: `S2_API_KEY` (optional; graceful degradation if unset)
 
 ---
@@ -52,7 +52,7 @@ Used when re-verifying a reference that was previously resolved to a Semantic Sc
 | Tier 1 | DOI resolution | 100% of DOI-bearing refs | URL-level existence check |
 | Tier 2 | WebSearch spot-check | 50% of sources | Human-readable verification |
 
-**Execution order**: Tier 0 first (batch, 1 req/sec). References that PASS Tier 0 skip Tier 2 unless flagged for other reasons. References that FAIL Tier 0 proceed to Tier 1 + Tier 2 for manual investigation.
+**Execution order**: Tier 0 first. Prefer DOI lookup (Pattern 2, 10 req/sec) over title search (Pattern 1, 1 req/sec) when DOI is available — this is both faster and more precise. References that PASS Tier 0 skip Tier 2 unless flagged for other reasons. References that FAIL Tier 0 proceed to Tier 1 + Tier 2 for manual investigation.
 
 ---
 
@@ -77,6 +77,17 @@ Record the following in the reference's verification audit trail:
 - Proceed to Tier 1 (DOI) and Tier 2 (WebSearch) for further investigation
 - If ALL tiers fail: classify as `NOT_FOUND` per existing protocol
 
+### Rate Limits (per endpoint)
+
+| Endpoint | With API key | Without API key |
+|----------|-------------|-----------------|
+| `/paper/search` (Pattern 1) | **1 req/sec** | Shared 1000 req/sec pool |
+| `/paper/batch` | **1 req/sec** | Shared 1000 req/sec pool |
+| `/paper/DOI:{doi}` (Pattern 2) | **10 req/sec** | Shared 1000 req/sec pool |
+| `/paper/{paperId}` (Pattern 3) | **10 req/sec** | Shared 1000 req/sec pool |
+
+**Optimization**: When a reference has a DOI, always use Pattern 2 (DOI lookup) first — it is 10x faster than Pattern 1 (title search). Only fall back to Pattern 1 when no DOI is available.
+
 ### On API failure
 
 - HTTP 429 (rate limit): back off 2 seconds, retry up to 3 times
@@ -95,9 +106,12 @@ When two references resolve to the same `semantic_scholar_id`, flag as duplicate
 ## Cost and Performance
 
 - **API calls per paper**: ~30-80 (one per reference, typical paper has 30-80 references)
-- **Time**: At 1 req/sec (unauthenticated), 30-80 seconds for a full paper. With API key (10 req/sec): 3-8 seconds
+- **Time estimate** (with API key):
+  - All refs have DOI → Pattern 2 at 10 req/sec → 3-8 seconds
+  - No DOIs (title search only) → Pattern 1 at 1 req/sec → 30-80 seconds
+  - Mixed (typical) → DOI refs first (fast), then title search for remainder → 15-40 seconds
 - **Cost**: Free (Semantic Scholar API is free for academic use)
-- **Recommendation**: Set `S2_API_KEY` for faster verification. Obtain from https://www.semanticscholar.org/product/api#api-key
+- **Recommendation**: Set `S2_API_KEY` for authenticated access. Obtain from https://www.semanticscholar.org/product/api#api-key. Note: `/paper/search` is still 1 req/sec even with API key; the key primarily benefits DOI/ID lookups (10 req/sec) and avoids the shared unauthenticated pool.
 
 ---
 
